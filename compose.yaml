@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: .
+      target: final
+    ports:
+      - 50051:50051
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_NAME=logsentinel
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+    secrets:
+      - db-password
+
+  envoy:
+    image: envoyproxy/envoy:v1.28-latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+    depends_on:
+      - server
+
+  db:
+    image: postgres:16-alpine
+    restart: always
+    user: postgres
+    secrets:
+      - db-password
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - type: bind
+        source: ./internal/db/init.sql
+        target: /docker-entrypoint-initdb.d/init.sql
+        read_only: true
+    environment:
+      - POSTGRES_DB=logsentinel
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db-password
+    ports:
+      - 5432:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d logsentinel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db-data:
+
+secrets:
+  db-password:
+    file: internal/db/password.txt
+
